@@ -1,102 +1,70 @@
 ---
-title: "Practical Machine Learning  Write up"
+title: "Prediction of excercise by machine learning"
+author: "Ryota"
+date: "10/9/2018"
 output: html_document
 ---
 
-# Getting Data
+## 1.Overview
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. Data for the project is from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The report will indicate to predict the manner in which they did the exercise. This is the "classe" variable in the training set. 
 
-Training data was obtained from https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
-
-Testing data was obtained from https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
-
-Libraries included for analysis
-```{r,results='hide'}
-library(ggplot2)
+## 2.Analysis
+First of all, the tools required are loaded.
+```{r}
 library(caret)
+library(ggplot2)
+library(rpart)
 library(randomForest)
-library(gbm)
-library(doParallel)
-library(dplyr)
-library(e1071)
-trainset <- read.csv("pml-training.csv", head=TRUE, sep=",", na.strings=c("NA","#DIV/0!","")) 
-testset <- read.csv("pml-testing.csv", head=TRUE, sep=",", na.strings=c("NA","#DIV/0!",""))  
-
+library(rpart.plot) 
 ```
 
-# Data Cleanup
-
-Data obtained in the testing and traning set need to be cleaned up, columns contaning a majority of NA values need to be removed, columns with low variance also need to be removed. In the end we should be left with only those coulums wich influence the prediction.
-
+Then, the data is loaded for both training and testing. 
 ```{r}
-
-threshold <- sapply(trainset, function(df) {sum(is.na(df)==TRUE)/length(df)})
-thresholdtest <- sapply(testset, function(df) {sum(is.na(df)==TRUE)/length(df)})
-
-traincolidx <-names(which(threshold<0.95))
-trainset<-trainset[,traincolidx]
-testcolidx  <-names(which(thresholdtest<0.95))
-testset<-testset[,testcolidx]
-
-nov1 <- nearZeroVar(trainset,saveMetrics=TRUE)
-nov2 <- nearZeroVar(testset,saveMetrics=TRUE)
-goodTrainData <- trainset[,which(nov1$nzv==FALSE)]
-goodTestData <- testset[,which(nov2$nzv==FALSE)]
-
-RmInx1 <- grepl("X|timestamp|user_name", names(goodTrainData))
-goodTrainData <- goodTrainData[, which(RmInx1 ==FALSE)]
-
-RmInx2 <- grepl("X|timestamp|user_name|problem_id", names(goodTestData))
-goodTestData <- goodTestData[, which(RmInx2 ==FALSE)]
-
-
-set.seed(35161)
-indexTrain <- createDataPartition (goodTrainData$classe, p=0.75, list=FALSE)
-testing <-goodTrainData [- indexTrain,]
-inTrain <- createDataPartition(testing$classe, p = 0.75)[[1]]
-crossv_test <- testing[ -inTrain,]
-training <- goodTrainData [indexTrain ,]
-testing<-testing[inTrain,]
-
+testing <- read.csv("pml-testing.csv")
+training <- read.csv("pml-training.csv")
 ```
 
-# Training Random Forest 
-
-We use parallel processing to increase the training speed
+The structure of the training data is checked.
 ```{r}
- cl <- makeCluster(detectCores())
- registerDoParallel(cl)
- mod1 <- train(classe ~ ., data=training, method="rf")
- pred1 <- predict(mod1, testing)
- stopCluster(cl)
- plot(mod1$finalModel)
+str(training)
+summary(training$classe)
 ```
+We can see the training data has 19622 observations with 160 variables. And, "classe" variables have five classes: A~E.
 
-## Displaying the confusion matrix
-
+Then, in order to eliminate the missing value in the training data, below operations were conducted.
 ```{r}
- confusionMatrix(pred1, testing$classe)
+training2 <- training[ , colSums(is.na(training)) == 0]
+write.csv(training2,file="training2.csv")
+training3 = read.csv("training2.csv",header = TRUE,na.strings = c("NA","NaN","","#DIV/0!"))
+training4 <- training3[ , colSums(is.na(training3)) == 0]
+training4 <- training4[,8:61]
 ```
 
-The confusion matrix gives and accuracy of 99.69%
- 
-## Importance of predictors
- 
- ```{r}
- print(plot(varImp(mod1)))
- ```
-## Out of sample error 
- ```{r}
-pred1 <- predict(mod1,crossv_test)
-accuracy <- sum(pred1 == crossv_test$classe) / length(pred1)
-accuracy
- ```
-The out of sample Error achieved is  99.67 % with the validation set.
- 
-## Prediction of new values
- 
-The final step is to use the model and predict values from our test case
- ```{r}
- final<- predict(mod1,goodTestData)
- final
- ```
+The training data is separedted into training and testing part.
+```{r}
+set.seed(22519) 
+inTrain <- createDataPartition(training4$classe, p=0.70, list=F) 
+trainData <- training4[inTrain, ] 
+testData <- training4[-inTrain, ]
+```
 
+Prediction is conducted by the Decision Tree.
+```{r}
+model_tree <- rpart(classe~.,data=trainData,method="class")
+prediction_tree <- predict(model_tree, testData, type="class")
+class_tree <- confusionMatrix(prediction_tree, testData$classe) 
+class_tree
+```
+The accuracy was 76.8%.
+
+Then, prediction is tried by the random forest.
+```{r}
+forest_model <- randomForest(classe ~ ., data=trainData, method="class") 
+prediction_forest <- predict(forest_model, testData, type="class") 
+random_forest <- confusionMatrix(prediction_forest, testData$classe) 
+random_forest
+```
+The accuracy was 99.6%.
+
+## 3.Conclusion
+This report tried to predict the data by using Decision Tree and Random Forest, and indicated that Random Forest was much better (99.6%) than Decesion tree (76.8%), regarding the accuracy.
